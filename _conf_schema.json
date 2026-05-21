@@ -1,0 +1,45 @@
+{
+  "enabled": {
+    "description": "是否启用 DealNest QQ 群通知拉取",
+    "type": "bool",
+    "default": true
+  },
+  "dealnest_base_url": {
+    "description": "DealNest 站点地址",
+    "type": "string",
+    "hint": "例如 https://dealnest.example.com，不要带结尾斜杠",
+    "default": ""
+  },
+  "token": {
+    "description": "通知 API 令牌",
+    "type": "string",
+    "hint": "必须与 DealNest 的 BOT_NOTIFICATION_TOKEN 一致",
+    "default": ""
+  },
+  "target_umo": {
+    "description": "AstrBot 群会话 unified_msg_origin",
+    "type": "string",
+    "hint": "推荐在目标 QQ 群内发送 /dn_bind_group 自动写入",
+    "default": ""
+  },
+  "batch_size": {
+    "description": "单次最多拉取通知数",
+    "type": "int",
+    "default": 10
+  },
+  "poll_interval_seconds": {
+    "description": "无通知时轮询间隔秒数",
+    "type": "int",
+    "default": 30
+  },
+  "failure_backoff_seconds": {
+    "description": "DealNest 不可达或请求失败后的退避秒数",
+    "type": "int",
+    "default": 60
+  },
+  "request_timeout_seconds": {
+    "description": "访问 DealNest 的请求超时秒数",
+    "type": "int",
+    "default": 15
+  }
+}
