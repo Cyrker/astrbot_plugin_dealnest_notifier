@@ -16,10 +16,10 @@
     "hint": "必须与 DealNest 的 BOT_NOTIFICATION_TOKEN 一致",
     "default": ""
   },
-  "target_umo": {
-    "description": "AstrBot 群会话 unified_msg_origin",
+  "target_umos": {
+    "description": "AstrBot 群会话 unified_msg_origin 列表",
     "type": "string",
-    "hint": "推荐在目标 QQ 群内发送 /dn_bind_group 自动写入",
+    "hint": "每行一个；推荐在每个目标 QQ 群内发送 /dn_bind_group 自动写入",
     "default": ""
   },
   "batch_size": {

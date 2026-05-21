@@ -34,8 +34,35 @@ class DealNestNotifier(Star):
     def _base_url(self) -> str:
         return self._get_str("dealnest_base_url").rstrip("/")
 
-    def _target_umo(self) -> str:
-        return self._get_str("target_umo")
+    def _normalize_targets(self, value: Any) -> list[str]:
+        if isinstance(value, str):
+            raw_targets = value.replace(",", "\n").splitlines()
+        elif isinstance(value, (list, tuple, set)):
+            raw_targets = value
+        else:
+            raw_targets = []
+
+        targets: list[str] = []
+        seen: set[str] = set()
+        for raw_target in raw_targets:
+            target = str(raw_target or "").strip()
+            if target and target not in seen:
+                targets.append(target)
+                seen.add(target)
+        return targets
+
+    def _target_umos(self) -> list[str]:
+        targets = self._normalize_targets(self.config.get("target_umos", ""))
+        legacy_target = self._get_str("target_umo")
+        if legacy_target and legacy_target not in targets:
+            targets.append(legacy_target)
+        return targets
+
+    def _save_target_umos(self, targets: list[str]) -> None:
+        normalized = self._normalize_targets(targets)
+        self.config["target_umos"] = "\n".join(normalized)
+        self.config["target_umo"] = ""
+        self.config.save_config()
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._get_str('token')}"}
@@ -87,19 +114,37 @@ class DealNestNotifier(Star):
         if last_error:
             raise last_error
 
+    def _notification_targets(self, notification: dict[str, Any]) -> list[str]:
+        explicit_target = str(notification.get("target") or "").strip()
+        return [explicit_target] if explicit_target else self._target_umos()
+
     async def _send_notification(self, notification: dict[str, Any]) -> None:
-        target = str(notification.get("target") or self._target_umo()).strip()
-        if not target:
-            raise RuntimeError("未配置 target_umo，无法发送群通知")
+        targets = self._notification_targets(notification)
+        if not targets:
+            raise RuntimeError("未绑定通知群，无法发送群通知")
 
         text = str(notification.get("message") or notification.get("title") or "").strip()
         if not text:
             raise RuntimeError("通知内容为空")
 
-        message_chain = MessageChain().message(text)
-        sent = await self.context.send_message(target, message_chain)
-        if sent is False:
-            raise RuntimeError(f"AstrBot 未找到目标会话: {target}")
+        sent_count = 0
+        failures: list[str] = []
+        for target in targets:
+            try:
+                sent = await self.context.send_message(target, MessageChain().message(text))
+                if sent is False:
+                    raise RuntimeError("AstrBot 未找到目标会话")
+                sent_count += 1
+            except Exception as exc:
+                failures.append(f"{target}: {exc}")
+
+        if failures:
+            logger.warning(
+                f"DealNest QQBOT 群通知部分发送失败: 成功 {sent_count} 个，失败 {len(failures)} 个；"
+                f"{'; '.join(failures[:3])}"
+            )
+        if sent_count == 0:
+            raise RuntimeError(f"所有通知群发送失败: {'; '.join(failures[:3])}")
 
     async def _poll_once(self) -> tuple[int, int]:
         idle_interval = self._get_int("poll_interval_seconds", 30)
@@ -152,9 +197,33 @@ class DealNestNotifier(Star):
             yield event.plain_result("请在需要接收通知的 QQ 群里执行这个命令。")
             return
 
-        self.config["target_umo"] = event.unified_msg_origin
-        self.config.save_config()
-        yield event.plain_result("已绑定当前群为 DealNest 通知群。")
+        targets = self._target_umos()
+        current_target = str(event.unified_msg_origin or "").strip()
+        if current_target in targets:
+            yield event.plain_result(f"当前群已在 DealNest 通知群列表中，共 {len(targets)} 个群。")
+            return
+
+        targets.append(current_target)
+        self._save_target_umos(targets)
+        yield event.plain_result(f"已绑定当前群为 DealNest 通知群，共 {len(targets)} 个群。")
+
+    @filter.command("dn_unbind_group")
+    async def unbind_group(self, event: AstrMessageEvent):
+        """从 DealNest 通知群列表移除当前 QQ 群。"""
+        group_id = str(getattr(event.message_obj, "group_id", "") or "").strip()
+        if not group_id:
+            yield event.plain_result("请在需要移除通知绑定的 QQ 群里执行这个命令。")
+            return
+
+        current_target = str(event.unified_msg_origin or "").strip()
+        targets = self._target_umos()
+        next_targets = [target for target in targets if target != current_target]
+        if len(next_targets) == len(targets):
+            yield event.plain_result(f"当前群未绑定为 DealNest 通知群，共 {len(targets)} 个群。")
+            return
+
+        self._save_target_umos(next_targets)
+        yield event.plain_result(f"已移除当前通知群，剩余 {len(next_targets)} 个群。")
 
     @filter.command("dn_notify_status")
     async def notify_status(self, event: AstrMessageEvent):
@@ -162,14 +231,14 @@ class DealNestNotifier(Star):
         enabled = self._get_bool("enabled", True)
         has_base_url = bool(self._base_url())
         has_token = bool(self._get_str("token"))
-        has_target = bool(self._target_umo())
+        target_count = len(self._target_umos())
         yield event.plain_result(
             "\n".join(
                 [
                     f"enabled: {enabled}",
                     f"dealnest_base_url: {'已配置' if has_base_url else '未配置'}",
                     f"token: {'已配置' if has_token else '未配置'}",
-                    f"target_umo: {'已绑定' if has_target else '未绑定'}",
+                    f"target_groups: {target_count}",
                 ]
             )
         )

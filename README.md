@@ -1,6 +1,6 @@
 # DealNest AstrBot QQ 群通知插件
 
-这个插件采用拉取模式：AstrBot 定时访问 DealNest 的通知队列 API，发送到绑定的 QQ 群，再回写发送结果。DealNest 不需要访问 AstrBot 或 NapCat。
+这个插件采用拉取模式：AstrBot 定时访问 DealNest 的通知队列 API，广播到已绑定的 QQ 群，再回写发送结果。DealNest 不需要访问 AstrBot 或 NapCat。
 
 ## DealNest 环境变量
 
@@ -35,13 +35,19 @@ https://github.com/Cyrker/astrbot_plugin_dealnest_notifier
 2. 在插件配置里填写：
    - `dealnest_base_url`：公网或内网可访问的 DealNest 地址，例如 `https://dealnest.example.com`
    - `token`：与 DealNest `BOT_NOTIFICATION_TOKEN` 相同
-3. 在要接收通知的 QQ 群里发送：
+3. 在每个要接收通知的 QQ 群里发送：
 
 ```text
 /dn_bind_group
 ```
 
-插件会保存当前群的 `unified_msg_origin` 到 `target_umo`，后续通知都会发到这个群。
+插件会保存当前群的 `unified_msg_origin` 到 `target_umos`，后续通知会广播到所有已绑定群。
+
+如需移除某个群，在该群内发送：
+
+```text
+/dn_unbind_group
+```
 
 ## 调试命令
 
