@@ -16,6 +16,12 @@
     "hint": "必须与 DealNest 的 BOT_NOTIFICATION_TOKEN 一致",
     "default": ""
   },
+  "admin_qqs": {
+    "description": "允许执行插件管理命令的 QQ 号",
+    "type": "string",
+    "hint": "每行或逗号分隔一个 QQ；AstrBot 全局管理员也会被允许",
+    "default": ""
+  },
   "target_umos": {
     "description": "AstrBot 群会话 unified_msg_origin 列表",
     "type": "string",

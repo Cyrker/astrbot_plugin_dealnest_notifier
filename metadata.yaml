@@ -1,6 +1,6 @@
 name: astrbot_plugin_dealnest_notifier
 desc: DealNest QQ 群通知拉取插件
 help: 配置 DealNest 地址和通知令牌后，在每个目标 QQ 群发送 /dn_bind_group 绑定群通知。
-version: v0.2.0
+version: v0.3.0
 author: DealNest
 repo: "https://github.com/Cyrker/astrbot_plugin_dealnest_notifier"

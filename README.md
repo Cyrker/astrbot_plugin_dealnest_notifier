@@ -35,6 +35,7 @@ https://github.com/Cyrker/astrbot_plugin_dealnest_notifier
 2. 在插件配置里填写：
    - `dealnest_base_url`：公网或内网可访问的 DealNest 地址，例如 `https://dealnest.example.com`
    - `token`：与 DealNest `BOT_NOTIFICATION_TOKEN` 相同
+   - `admin_qqs`：允许执行 `/dn_bind_group`、`/dn_unbind_group`、`/dn_notify_status`、`/dn_poll_now` 的 QQ 号，每行或逗号分隔一个
 3. 在每个要接收通知的 QQ 群里发送：
 
 ```text
@@ -55,6 +56,8 @@ https://github.com/Cyrker/astrbot_plugin_dealnest_notifier
 /dn_notify_status
 /dn_poll_now
 ```
+
+以上命令仅允许 `admin_qqs` 中的 QQ 或 AstrBot 全局管理员执行。
 
 ## 网络要求
 

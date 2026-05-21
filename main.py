@@ -31,25 +31,58 @@ class DealNestNotifier(Star):
     def _get_str(self, key: str) -> str:
         return str(self.config.get(key, "") or "").strip()
 
+    def _normalize_list(self, value: Any) -> list[str]:
+        if isinstance(value, str):
+            raw_items = (
+                value.replace("，", "\n")
+                .replace(",", "\n")
+                .replace(";", "\n")
+                .replace("；", "\n")
+                .splitlines()
+            )
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = value
+        else:
+            raw_items = []
+
+        items: list[str] = []
+        seen: set[str] = set()
+        for raw_item in raw_items:
+            item = str(raw_item or "").strip()
+            if item and item not in seen:
+                items.append(item)
+                seen.add(item)
+        return items
+
     def _base_url(self) -> str:
         return self._get_str("dealnest_base_url").rstrip("/")
 
     def _normalize_targets(self, value: Any) -> list[str]:
-        if isinstance(value, str):
-            raw_targets = value.replace(",", "\n").splitlines()
-        elif isinstance(value, (list, tuple, set)):
-            raw_targets = value
-        else:
-            raw_targets = []
+        return self._normalize_list(value)
 
-        targets: list[str] = []
-        seen: set[str] = set()
-        for raw_target in raw_targets:
-            target = str(raw_target or "").strip()
-            if target and target not in seen:
-                targets.append(target)
-                seen.add(target)
-        return targets
+    def _admin_qqs(self) -> set[str]:
+        return set(self._normalize_list(self.config.get("admin_qqs", "")))
+
+    def _event_sender_id(self, event: AstrMessageEvent) -> str:
+        with suppress(Exception):
+            return str(event.get_sender_id() or "").strip()
+        sender = getattr(getattr(event, "message_obj", None), "sender", None)
+        for attr in ("user_id", "id", "qq"):
+            value = getattr(sender, attr, None)
+            if value:
+                return str(value).strip()
+        return ""
+
+    def _is_admin_event(self, event: AstrMessageEvent) -> bool:
+        with suppress(Exception):
+            if event.is_admin():
+                return True
+        sender_id = self._event_sender_id(event)
+        return bool(sender_id and sender_id in self._admin_qqs())
+
+    def _permission_denied_message(self, event: AstrMessageEvent) -> str:
+        sender_id = self._event_sender_id(event) or "未知"
+        return f"没有权限执行 DealNest 通知管理命令。请在插件配置 admin_qqs 中添加你的 QQ：{sender_id}"
 
     def _target_umos(self) -> list[str]:
         targets = self._normalize_targets(self.config.get("target_umos", ""))
@@ -192,6 +225,10 @@ class DealNestNotifier(Star):
     @filter.command("dn_bind_group")
     async def bind_group(self, event: AstrMessageEvent):
         """把当前 QQ 群绑定为 DealNest 通知群。"""
+        if not self._is_admin_event(event):
+            yield event.plain_result(self._permission_denied_message(event))
+            return
+
         group_id = str(getattr(event.message_obj, "group_id", "") or "").strip()
         if not group_id:
             yield event.plain_result("请在需要接收通知的 QQ 群里执行这个命令。")
@@ -210,6 +247,10 @@ class DealNestNotifier(Star):
     @filter.command("dn_unbind_group")
     async def unbind_group(self, event: AstrMessageEvent):
         """从 DealNest 通知群列表移除当前 QQ 群。"""
+        if not self._is_admin_event(event):
+            yield event.plain_result(self._permission_denied_message(event))
+            return
+
         group_id = str(getattr(event.message_obj, "group_id", "") or "").strip()
         if not group_id:
             yield event.plain_result("请在需要移除通知绑定的 QQ 群里执行这个命令。")
@@ -228,10 +269,15 @@ class DealNestNotifier(Star):
     @filter.command("dn_notify_status")
     async def notify_status(self, event: AstrMessageEvent):
         """查看 DealNest 通知插件状态。"""
+        if not self._is_admin_event(event):
+            yield event.plain_result(self._permission_denied_message(event))
+            return
+
         enabled = self._get_bool("enabled", True)
         has_base_url = bool(self._base_url())
         has_token = bool(self._get_str("token"))
         target_count = len(self._target_umos())
+        admin_count = len(self._admin_qqs())
         yield event.plain_result(
             "\n".join(
                 [
@@ -239,6 +285,7 @@ class DealNestNotifier(Star):
                     f"dealnest_base_url: {'已配置' if has_base_url else '未配置'}",
                     f"token: {'已配置' if has_token else '未配置'}",
                     f"target_groups: {target_count}",
+                    f"admin_qqs: {admin_count}",
                 ]
             )
         )
@@ -246,6 +293,10 @@ class DealNestNotifier(Star):
     @filter.command("dn_poll_now")
     async def poll_now(self, event: AstrMessageEvent):
         """立即拉取一次 DealNest 待发送通知。"""
+        if not self._is_admin_event(event):
+            yield event.plain_result(self._permission_denied_message(event))
+            return
+
         delivered, next_wait = await self._poll_once()
         yield event.plain_result(f"本次发送 {delivered} 条，下一次建议等待 {next_wait} 秒。")
 
