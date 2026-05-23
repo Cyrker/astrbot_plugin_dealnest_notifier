@@ -5,7 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star
 
@@ -211,9 +211,9 @@ class DealNestNotifier(Star):
         if not text:
             raise RuntimeError("通知内容为空")
         image_url = self._notification_image_url(notification)
-        message_chain = [Comp.Plain(text)]
+        message_chain = MessageChain().message(text)
         if image_url:
-            message_chain.append(Comp.Image.fromURL(image_url))
+            message_chain.chain.append(Comp.Image.fromURL(image_url))
 
         sent_count = 0
         failures: list[str] = []
