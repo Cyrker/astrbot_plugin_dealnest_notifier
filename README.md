@@ -63,3 +63,5 @@ https://github.com/Cyrker/astrbot_plugin_dealnest_notifier
 ## 网络要求
 
 只要求 AstrBot 所在内网能访问 DealNest 的 HTTP(S) 地址。可以通过 Tailscale、VPN、反向代理、内网域名或 `dealnest_proxy_url` 代理解决；不要求 DealNest 主动访问 AstrBot 或 NapCat。
+
+项目通知如果带有作者头像，插件会在文字后追加一张图片消息。头像地址由 DealNest 通知 API 返回；Patreon、Fanbox 等站点图片会优先走 DealNest 的 `/api/img-proxy`，所以 AstrBot 所在环境也需要能访问 DealNest 的该接口。

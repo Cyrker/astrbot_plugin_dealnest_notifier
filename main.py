@@ -5,7 +5,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.event import AstrMessageEvent, MessageChain, filter
+from astrbot.api.event import AstrMessageEvent, filter
+import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star
 
 try:
@@ -186,6 +187,21 @@ class DealNestNotifier(Star):
         explicit_target = str(notification.get("target") or "").strip()
         return [explicit_target] if explicit_target else self._target_umos()
 
+    def _notification_image_url(self, notification: dict[str, Any]) -> str:
+        for key in ("imageUrl", "authorAvatarImageUrl"):
+            image_url = notification.get(key)
+            if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")):
+                return image_url.strip()
+
+        payload = notification.get("payload")
+        if isinstance(payload, dict):
+            for key in ("imageUrl", "authorAvatarImageUrl", "authorAvatarUrl"):
+                image_url = payload.get(key)
+                if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")):
+                    return image_url.strip()
+
+        return ""
+
     async def _send_notification(self, notification: dict[str, Any]) -> None:
         targets = self._notification_targets(notification)
         if not targets:
@@ -194,12 +210,16 @@ class DealNestNotifier(Star):
         text = str(notification.get("message") or notification.get("title") or "").strip()
         if not text:
             raise RuntimeError("通知内容为空")
+        image_url = self._notification_image_url(notification)
+        message_chain = [Comp.Plain(text)]
+        if image_url:
+            message_chain.append(Comp.Image.fromURL(image_url))
 
         sent_count = 0
         failures: list[str] = []
         for target in targets:
             try:
-                sent = await self.context.send_message(target, MessageChain().message(text))
+                sent = await self.context.send_message(target, message_chain)
                 if sent is False:
                     raise RuntimeError("AstrBot 未找到目标会话")
                 sent_count += 1
