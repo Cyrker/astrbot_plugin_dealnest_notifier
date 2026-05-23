@@ -16,6 +16,12 @@
     "hint": "必须与 DealNest 的 BOT_NOTIFICATION_TOKEN 一致",
     "default": ""
   },
+  "dealnest_proxy_url": {
+    "description": "访问 DealNest 时使用的代理地址",
+    "type": "string",
+    "hint": "留空直连；支持 http://127.0.0.1:7890、s5://127.0.0.1:1080、socks5://user:pass@host:1080",
+    "default": ""
+  },
   "admin_qqs": {
     "description": "允许执行插件管理命令的 QQ 号",
     "type": "string",

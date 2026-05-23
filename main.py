@@ -1,11 +1,17 @@
 import asyncio
 from contextlib import suppress
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
+
+try:
+    from aiohttp_socks import ProxyConnector
+except ImportError:
+    ProxyConnector = None
 
 
 class DealNestNotifier(Star):
@@ -56,6 +62,24 @@ class DealNestNotifier(Star):
 
     def _base_url(self) -> str:
         return self._get_str("dealnest_base_url").rstrip("/")
+
+    def _proxy_url(self) -> str:
+        proxy_url = self._get_str("dealnest_proxy_url")
+        if not proxy_url:
+            return ""
+
+        parsed = urlsplit(proxy_url)
+        scheme = parsed.scheme.lower()
+        if scheme == "s5":
+            scheme = "socks5"
+        if scheme not in {"http", "https", "socks4", "socks4a", "socks5", "socks5h"}:
+            raise RuntimeError("dealnest_proxy_url 必须以 http://、https://、s5:// 或 socks5:// 开头")
+        if not parsed.netloc:
+            raise RuntimeError("dealnest_proxy_url 缺少代理主机和端口")
+        return urlunsplit((scheme, parsed.netloc, parsed.path, parsed.query, parsed.fragment))
+
+    def _proxy_is_socks(self, proxy_url: str) -> bool:
+        return urlsplit(proxy_url).scheme.lower().startswith("socks")
 
     def _normalize_targets(self, value: Any) -> list[str]:
         return self._normalize_list(value)
@@ -109,7 +133,18 @@ class DealNestNotifier(Star):
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url()}{path}"
-        async with session.request(method, url, headers=self._headers(), json=json_body) as response:
+        request_kwargs: dict[str, Any] = {}
+        proxy_url = self._proxy_url()
+        if proxy_url and not self._proxy_is_socks(proxy_url):
+            request_kwargs["proxy"] = proxy_url
+
+        async with session.request(
+            method,
+            url,
+            headers=self._headers(),
+            json=json_body,
+            **request_kwargs,
+        ) as response:
             text = await response.text()
             if response.status >= 400:
                 raise RuntimeError(f"DealNest API 返回 {response.status}: {text[:200]}")
@@ -189,7 +224,13 @@ class DealNestNotifier(Star):
 
         timeout = aiohttp.ClientTimeout(total=self._get_int("request_timeout_seconds", 15))
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            proxy_url = self._proxy_url()
+            connector = None
+            if proxy_url and self._proxy_is_socks(proxy_url):
+                if ProxyConnector is None:
+                    raise RuntimeError("SOCKS 代理需要安装 aiohttp-socks 依赖")
+                connector = ProxyConnector.from_url(proxy_url)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 limit = self._get_int("batch_size", 10)
                 data = await self._request_json(session, "GET", f"/api/bot-notifications/pending?limit={limit}")
                 items = data.get("items") if isinstance(data, dict) else []
@@ -276,6 +317,7 @@ class DealNestNotifier(Star):
         enabled = self._get_bool("enabled", True)
         has_base_url = bool(self._base_url())
         has_token = bool(self._get_str("token"))
+        has_proxy = bool(self._get_str("dealnest_proxy_url"))
         target_count = len(self._target_umos())
         admin_count = len(self._admin_qqs())
         yield event.plain_result(
@@ -284,6 +326,7 @@ class DealNestNotifier(Star):
                     f"enabled: {enabled}",
                     f"dealnest_base_url: {'已配置' if has_base_url else '未配置'}",
                     f"token: {'已配置' if has_token else '未配置'}",
+                    f"dealnest_proxy_url: {'已配置' if has_proxy else '未配置'}",
                     f"target_groups: {target_count}",
                     f"admin_qqs: {admin_count}",
                 ]
