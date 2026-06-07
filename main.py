@@ -15,6 +15,10 @@ except ImportError:
     ProxyConnector = None
 
 
+BOT_USER_AGENT = "dealnest-botnotifications/1.0.0"
+MAX_NOTIFICATION_IMAGE_BYTES = 5 * 1024 * 1024
+
+
 class DealNestNotifier(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -123,7 +127,22 @@ class DealNestNotifier(Star):
         self.config.save_config()
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._get_str('token')}"}
+        return {
+            "Authorization": f"Bearer {self._get_str('token')}",
+            "User-Agent": BOT_USER_AGENT,
+        }
+
+    def _image_headers(self) -> dict[str, str]:
+        return {
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "User-Agent": BOT_USER_AGENT,
+        }
+
+    def _request_kwargs(self) -> dict[str, Any]:
+        proxy_url = self._proxy_url()
+        if proxy_url and not self._proxy_is_socks(proxy_url):
+            return {"proxy": proxy_url}
+        return {}
 
     async def _request_json(
         self,
@@ -134,17 +153,12 @@ class DealNestNotifier(Star):
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url()}{path}"
-        request_kwargs: dict[str, Any] = {}
-        proxy_url = self._proxy_url()
-        if proxy_url and not self._proxy_is_socks(proxy_url):
-            request_kwargs["proxy"] = proxy_url
-
         async with session.request(
             method,
             url,
             headers=self._headers(),
             json=json_body,
-            **request_kwargs,
+            **self._request_kwargs(),
         ) as response:
             text = await response.text()
             if response.status >= 400:
@@ -202,7 +216,40 @@ class DealNestNotifier(Star):
 
         return ""
 
-    async def _send_notification(self, notification: dict[str, Any]) -> None:
+    async def _read_limited_response(self, response: aiohttp.ClientResponse) -> bytes:
+        declared_length = response.content_length
+        if declared_length is not None and declared_length > MAX_NOTIFICATION_IMAGE_BYTES:
+            raise RuntimeError(f"图片过大: {declared_length} bytes")
+
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in response.content.iter_chunked(64 * 1024):
+            total += len(chunk)
+            if total > MAX_NOTIFICATION_IMAGE_BYTES:
+                raise RuntimeError(f"图片超过 {MAX_NOTIFICATION_IMAGE_BYTES} bytes")
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    async def _download_image_component(self, session: aiohttp.ClientSession, image_url: str) -> Any:
+        async with session.get(
+            image_url,
+            headers=self._image_headers(),
+            **self._request_kwargs(),
+        ) as response:
+            if response.status >= 400:
+                text = await response.text()
+                raise RuntimeError(f"图片下载返回 {response.status}: {text[:200]}")
+
+            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if content_type and not content_type.startswith("image/"):
+                raise RuntimeError(f"图片接口返回非图片内容: {content_type}")
+
+            image_bytes = await self._read_limited_response(response)
+            if not image_bytes:
+                raise RuntimeError("图片内容为空")
+            return Comp.Image.fromBytes(image_bytes)
+
+    async def _send_notification(self, session: aiohttp.ClientSession, notification: dict[str, Any]) -> None:
         targets = self._notification_targets(notification)
         if not targets:
             raise RuntimeError("未绑定通知群，无法发送群通知")
@@ -213,7 +260,7 @@ class DealNestNotifier(Star):
         image_url = self._notification_image_url(notification)
         message_chain = MessageChain().message(text)
         if image_url:
-            message_chain.chain.append(Comp.Image.fromURL(image_url))
+            message_chain.chain.append(await self._download_image_component(session, image_url))
 
         sent_count = 0
         failures: list[str] = []
@@ -262,7 +309,7 @@ class DealNestNotifier(Star):
                     if not isinstance(item, dict):
                         continue
                     try:
-                        await self._send_notification(item)
+                        await self._send_notification(session, item)
                     except Exception as exc:
                         logger.warning(f"DealNest QQBOT 通知发送失败: {exc}")
                         with suppress(Exception):
