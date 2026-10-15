@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import suppress
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 
 import aiohttp
 from astrbot.api import AstrBotConfig, logger
@@ -202,19 +202,34 @@ class DealNestNotifier(Star):
         return [explicit_target] if explicit_target else self._target_umos()
 
     def _notification_image_url(self, notification: dict[str, Any]) -> str:
-        for key in ("imageUrl", "authorAvatarImageUrl"):
-            image_url = notification.get(key)
-            if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")):
-                return image_url.strip()
-
         payload = notification.get("payload")
-        if isinstance(payload, dict):
-            for key in ("imageUrl", "authorAvatarImageUrl", "authorAvatarUrl"):
-                image_url = payload.get(key)
-                if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")):
-                    return image_url.strip()
+        if not isinstance(payload, dict):
+            payload = {}
 
-        return ""
+        # 只认明确的最新内容缩略图；旧队列的 imageUrl 可能是头像。
+        thumbnail_url = notification.get("authorLatestPostImageUrl")
+        if not isinstance(thumbnail_url, str) or not thumbnail_url.strip():
+            thumbnail_url = payload.get("authorLatestPostImageUrl")
+        if not isinstance(thumbnail_url, str):
+            return ""
+        thumbnail_url = thumbnail_url.strip()
+        if not thumbnail_url.startswith(("http://", "https://")):
+            return ""
+
+        # 只有确实指向同一缩略图的直链或代理地址可用，旧头像不能抢占。
+        for image_url in (notification.get("imageUrl"), payload.get("imageUrl")):
+            if not isinstance(image_url, str):
+                continue
+            image_url = image_url.strip()
+            if not image_url.startswith(("http://", "https://")):
+                continue
+            if image_url == thumbnail_url:
+                return image_url
+            with suppress(ValueError):
+                parsed_image_url = urlparse(image_url)
+                if parsed_image_url.path.endswith("/img-proxy") and parse_qs(parsed_image_url.query).get("url") == [thumbnail_url]:
+                    return image_url
+        return thumbnail_url
 
     async def _read_limited_response(self, response: aiohttp.ClientResponse) -> bytes:
         declared_length = response.content_length
